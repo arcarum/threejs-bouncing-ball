@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bouncing Ball</title>
+    <style> body { margin: 0; } </style>
+</head>
+<body>
+<script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.171.0/build/three.module.js",
+            "orbitControls": "https://unpkg.com/three@0.171.0/examples/jsm/controls/OrbitControls.js"
+        }
+    }
+</script>   
+<script type="module">
+
+    import * as THREE from 'three';
+    import {OrbitControls} from 'orbitControls';
+
+    // 1. Scene, Camera, Renderer
+    var camera, scene, renderer, controls;
+
+    // 2. Light Setup
+    var light, light2;
+
+    // 3. Object Sizes and Colors
+    var box, ball, centerBall;
+    var resolution = 32;
+    var boxsize = 20; // Size of the box
+    var ballRadius = boxsize / 20; // Ball radius (1/20th of box size)
+    var centerBallRadius = ballRadius * 3;
+    var boxColor = 0xcdcd14; // Color of the box
+    var ballColor = 0x2f2f2f; // Color of the ball
+    var centerBallColor = 0xfaf0e6; // Color of the center ball
+    var currentMaterial = THREE.MeshLambertMaterial; // The current material used for the balls
+
+    // 4. Movement Increments (For animation of balls and other objects)
+    var dx = 0.1, dy = 0.2, dz = 0.3; // Movement increments for X, Y, and Z
+
+    // 5. Physics Variables
+    var isGravityEnabled = true;
+    var gravity = 0.013, gravityIncrement = 0.001;
+    var minGravity = 0.013, maxGravity = 0.024;
+
+    var isFrictionEnabled = true;
+    var friction = 0.001, frictionIncrement = 0.001;
+    var minFrction = 0.001, maxFriction = 0.012;
+
+    // 6. Cube and Ball Appearance Options (Wireframe, Solid, etc.)
+    const cubeEnums = Object.freeze({ SOLID: 0, WIREFRAME: 1, NONE: 2 });
+    const ballEnums = Object.freeze({ SOLID: 0, WIREFRAME: 1 });
+
+    var cubeListLoop = [cubeEnums.SOLID, cubeEnums.WIREFRAME, cubeEnums.NONE];
+    var cubeCurrentIndex = 1;
+
+    var ballListLoop = [ballEnums.SOLID, ballEnums.WIREFRAME];
+    var ballCurrentIndex = 1;
+
+    // 7. Rainbow Balls Configuration
+    var rainbowBalls = [];
+    var isBallActive = Array(7).fill(false);
+    var rainbowColors = [0xff0000, 0xffa500, 0xffff00, 0x008000, 0x0000ff, 0x4b0082, 0xee82ee];
+
+    // 8. Mirror and Reflection Setup
+    var mirrorSphereCamera;
+    var isMirror = true;
+    const reflectivity = 0.9;
+    const cubeRenderTarget = new THREE.WebGLCubeRenderTarget(512, {
+        generateMipmaps: true,
+        minFilter: THREE.LinearMipmapLinearFilter
+    });
+
+    // 9. Other Ball-related Variables
+    var allOtherBalls = [];
+
+    // 10. Miscellaneous
+    var opacity = 0.5; // Opacity value for certain materials
+
+    // Each ball keeps track of its own movement
+    class Ball 
+    {
+        constructor(mesh, dx, dy, dz) {
+            this.mesh = mesh;
+            this.dx = dx;
+            this.dy = dy;
+            this.dz = dz;
+        }
+    }
+
+    const keyBoardKeys = Object.freeze({
+        PLUS: 43,
+        EQUAL: 61,
+
+        DASH: 150,
+        UNDERSCORE: 95,
+        OPENING_BRACE: 173, // This is the dash/underscore for my keyboard
+
+        OPENING_BRACKET: 91,
+        UCRIC: 219,         // This is the opening bracket on my keyboard
+
+        CLOSING_BRACKET: 93,
+        YACUTE: 221,        // This is the closing bracket on my keyboard
+        
+        F: 70,
+        G: 71,
+
+        C: 67,
+        B: 66,
+
+        Zero: 48,
+        One: 49,
+        Two: 50,
+        Three: 51,
+        Four: 52,
+        Five: 53,
+        Six: 54,
+        Seven: 55,  
+
+        D: 68,
+        S: 83,
+        N: 78,
+        M: 77,
+        Z: 90,
+        A: 65,
+        R: 82,
+    });
+
+    init();
+    make_scene();
+    animate();
+
+    function init() {
+        // Set up the camera
+        camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(10, 10, 10);
+
+        // Set up the scene
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x202020);
+
+        // Set up the renderer
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.shadowMap.enabled = true;
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.body.appendChild(renderer.domElement);
+
+        // Add a light source
+        light = new THREE.PointLight(0xffffff, 50);
+        light.position.set(-5, 5, 6);
+        light.castShadow = true;
+        scene.add(light);
+
+        //var helper = new THREE.PointLightHelper(light);
+        //scene.add(helper);
+
+        light2 = new THREE.PointLight(0xffffff, 50);
+        light2.position.set(5, 5, -6);
+        light2.castShadow = true;
+        scene.add(light2);
+
+        //helper = new THREE.PointLightHelper(light);
+        //scene.add(helper);
+
+        // Add OrbitControls for mouse interaction
+        controls = new OrbitControls(camera, renderer.domElement);
+
+        // Adjust for resizing
+        window.addEventListener("resize", onWindowResize, false);
+
+        document.addEventListener( "keydown", onDocumentKeyDown, false );
+    }
+
+    function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function onDocumentKeyDown( event ) { 
+
+        var keyCode = event.which;
+        switch (keyCode)
+        {
+            case keyBoardKeys.PLUS:
+            case keyBoardKeys.EQUAL:
+                gravity += gravityIncrement;
+                if (gravity > maxGravity) gravity = maxGravity;
+                break;
+            case keyBoardKeys.DASH:
+            case keyBoardKeys.UNDERSCORE:
+            case keyBoardKeys.OPENING_BRACE:
+                gravity -= gravityIncrement;
+                if (gravity < minGravity) gravity = minGravity;
+                break;
+            case keyBoardKeys.CLOSING_BRACKET:
+            case keyBoardKeys.YACUTE:
+                friction += frictionIncrement;
+                if (friction > maxFriction) friction = maxFriction;
+                break;
+            case keyBoardKeys.OPENING_BRACKET:
+            case keyBoardKeys.UCRIC:
+                friction -= frictionIncrement;
+                if (friction < minFrction) friction = minFrction;
+                break;
+            case keyBoardKeys.F:
+                isFrictionEnabled = !isFrictionEnabled;
+                break;
+            case keyBoardKeys.G:
+                isGravityEnabled = !isGravityEnabled;
+                break;
+            case keyBoardKeys.C:
+                cubeCurrentIndex = (cubeCurrentIndex + 1) % cubeListLoop.length;
+                switch(cubeListLoop[cubeCurrentIndex])
+                {
+                    case cubeEnums.SOLID:
+                        box.visible = true;
+                        box.material.wireframe = false;
+                        break;
+                    case cubeEnums.WIREFRAME:
+                        box.visible = true;
+                        box.material.wireframe = true;
+                        break;
+                    case cubeEnums.NONE:
+                        box.visible = false;
+                        break;
+                }
+                break;
+            case keyBoardKeys.B:
+                ballCurrentIndex = (ballCurrentIndex + 1) % ballListLoop.length;
+                switch(ballListLoop[ballCurrentIndex])
+                {
+                    case ballEnums.SOLID:
+                    case ballEnums.WIREFRAME:
+                        ball.mesh.material.wireframe = !ball.mesh.material.wireframe;
+                        centerBall.material.wireframe = !centerBall.material.wireframe;
+                        rainbowBalls.forEach((rainbowBall) => {
+                            rainbowBall.mesh.material.wireframe = !rainbowBall.mesh.material.wireframe;
+                        })
+                        allOtherBalls.forEach((newBall) => {
+                            newBall.mesh.material.wireframe = !newBall.mesh.material.wireframe;
+                        })
+                        break;
+                }
+                break;
+
+            case keyBoardKeys.Zero:
+                toggleAllBalls();
+                break;
+            
+            case keyBoardKeys.One:
+            case keyBoardKeys.Two:
+            case keyBoardKeys.Three:
+            case keyBoardKeys.Four: 
+            case keyBoardKeys.Five:    
+            case keyBoardKeys.Six:                
+            case keyBoardKeys.Seven:
+                toggleRainbowBall(keyCode - keyBoardKeys.One);
+                break;
+            case keyBoardKeys.D:
+                changeMaterial(THREE.MeshLambertMaterial);
+                break;
+            case keyBoardKeys.S:
+                changeMaterial(THREE.MeshPhongMaterial);
+                break;
+            case keyBoardKeys.N:
+                changeMaterial(THREE.MeshBasicMaterial);
+                break;
+            case keyBoardKeys.M:
+                isMirror = !isMirror;
+                centerBall.material.envMap = (isMirror) ? cubeRenderTarget.texture : null;
+                centerBall.material.needsUpdate = true;
+                break;
+            case keyBoardKeys.Z:
+                
+                ball.mesh.castShadow = !ball.mesh.castShadow;
+                ball.mesh.receiveShadow = !ball.mesh.receiveShadow;
+                ball.mesh.material.needsUpdate = true;
+
+                centerBall.castShadow = !centerBall.castShadow;
+                centerBall.receiveShadow = !centerBall.receiveShadow;
+                centerBall.material.needsUpdate = true;
+
+                rainbowBalls.forEach((rainbowBall) => {
+                    rainbowBall.mesh.castShadow = !rainbowBall.mesh.castShadow;
+                    rainbowBall.mesh.receiveShadow = !rainbowBall.mesh.receiveShadow;
+                    rainbowBall.mesh.material.needsUpdate = true;
+                })
+
+                allOtherBalls.forEach((newBall) => {
+                    newBall.mesh.castShadow = !newBall.mesh.castShadow;
+                    newBall.mesh.receiveShadow = !newBall.mesh.receiveShadow;
+                    newBall.mesh.material.needsUpdate = true;
+                })
+                break;
+            case keyBoardKeys.A:
+                addNewBall();
+                break;
+            case keyBoardKeys.R:
+                reset();
+                break;
+        }
+    }
+
+    function reset()
+    {   
+        dx = 0.1, dy = 0.2, dz = 0.3; // Movement increments for X, Y, and Z
+        
+        isGravityEnabled = true;
+        gravity = 0.05, gravityIncrement = 0.01;
+        minGravity = 0.01, maxGravity = 0.12;
+
+        isFrictionEnabled = true;
+        friction = 0.01, frictionIncrement = 0.01;
+        minFrction = 0.01, maxFriction = 0.12;
+
+        cubeCurrentIndex = 1;
+        ballCurrentIndex = 1;
+
+        rainbowBalls = [];
+        isBallActive = Array(7).fill(false);
+
+        scene.remove.apply(scene, scene.children);
+        
+        // Reser camera position
+        camera.position.set(10, 10, 10);
+
+        // Reset light source
+        scene.add(light);
+        scene.add(light2);
+        
+        make_scene();
+    }
+
+    function changeMaterial( mat )
+    {
+        ball.mesh.material = new mat( { color: ball.mesh.material.color } );
+
+        // Enable the envMap for the center ball if mirror is currently enabled
+        var envMap = (isMirror) ? cubeRenderTarget.texture : null;
+        centerBall.material = new mat( { color: centerBall.material.color, envMap: envMap } );
+
+        rainbowBalls.forEach((rainbowBall) => {
+            rainbowBall.mesh.material = new mat( { color: rainbowBall.mesh.material.color } );
+        })
+
+        allOtherBalls.forEach((newBall) => {
+            newBall.mesh.material = new mat( { color: newBall.mesh.material.color } );
+        })
+
+        currentMaterial = mat;
+    }
+
+    function make_scene() {
+        // Create the wireframe box
+        var boxGeometry = new THREE.BoxGeometry(boxsize, boxsize, boxsize);
+        var boxMaterial = new THREE.MeshBasicMaterial({ wireframe: true, color: boxColor, opacity: opacity, transparent: true });
+        box = new THREE.Mesh(boxGeometry, boxMaterial);
+        scene.add(box);
+
+        // Create the ball
+        var ballGeometry = new THREE.SphereGeometry(ballRadius, resolution, resolution);
+        var ballMaterial = new THREE.MeshLambertMaterial({ color: ballColor });
+        ball = new Ball(new THREE.Mesh(ballGeometry, ballMaterial), dx, dy, dz);
+        ball.mesh.position.set(centerBallRadius + 1, centerBallRadius + 1, centerBallRadius + 1); // Initial position
+        scene.add(ball.mesh);
+
+        // Create Fixed Center Ball and make it a mirror by using a camera
+        mirrorSphereCamera = new THREE.CubeCamera( 0.1, 5000, cubeRenderTarget );
+        scene.add(mirrorSphereCamera);
+
+        var centerBallGeometry = new THREE.SphereGeometry(centerBallRadius, resolution, resolution);
+        var centerBallMaterial = new THREE.MeshLambertMaterial({ color: centerBallColor, envMap: cubeRenderTarget.texture, reflectivity: reflectivity});
+        centerBall = new THREE.Mesh(centerBallGeometry, centerBallMaterial);
+        centerBall.position.set(0, 0, 0); // Initial position
+        //mirrorSphereCamera.position.set(centerBall.position);
+        scene.add(centerBall);
+    }
+
+    function addRainbowBall(index) {
+
+        var radius = ballRadius * (0.2 + Math.random() * 1.6); // +/- 80% of original size
+        var geometry = new THREE.SphereGeometry(radius, resolution, resolution);
+        var material = new currentMaterial({ color: rainbowColors[index], wireframe: ball.mesh.material.wireframe }); // Use wireframe if the main ball is in wireframe
+        var rainbowball = new Ball(new THREE.Mesh(geometry, material), (Math.random() - 0.5) * 0.5, -Math.random() * 0.5, (Math.random() - 0.5) * 0.5);
+
+        rainbowball.mesh.position.set(
+            (Math.random() - 0.5) * boxsize,
+            boxsize / 2 - radius,
+            (Math.random() - 0.5) * boxsize
+        );
+
+        rainbowBalls[index] = rainbowball;
+
+        scene.add(rainbowball.mesh);
+    }
+
+    function addNewBall()
+    {
+        var radius = ballRadius * (0.2 + Math.random() * 1.6); // +/- 80% of original size
+        var geometry = new THREE.SphereGeometry(radius, resolution, resolution);
+        var material = new currentMaterial({ color: 0x88c0d0, wireframe: ball.mesh.material.wireframe }); // Use wireframe if the main ball is in wireframe
+        var newball = new Ball(new THREE.Mesh(geometry, material), (Math.random() - 0.5) * 0.5, -Math.random() * 0.5, (Math.random() - 0.5) * 0.5);
+        
+        newball.mesh.position.set(
+            (Math.random() - 0.5) * boxsize,
+            boxsize / 2 - radius,
+            (Math.random() - 0.5) * boxsize
+        );
+
+        allOtherBalls.push(newball);
+
+        scene.add(newball.mesh);
+    }
+
+    function toggleRainbowBall(index) {
+        isBallActive[index] = !isBallActive[index];
+        if (isBallActive[index]) {
+            addRainbowBall(index);
+        }
+        else {
+            scene.remove(rainbowBalls[index].mesh);
+        }
+    }
+
+    function toggleAllBalls() {
+        var anyActive = isBallActive.some(Boolean);
+        for (let i = 0; i < 7; i++) {
+            isBallActive[i] = !anyActive;
+            if (isBallActive[i]) {
+                addRainbowBall(i);
+            } else {
+                scene.remove(rainbowBalls[i].mesh);
+            }
+        }
+    }
+
+    function update_scene() {
+        
+        check_cube_centerball_collisions(ball, ballRadius);
+
+        if (Array.isArray(rainbowBalls)) {
+            rainbowBalls.forEach((rainbowball, index) => {
+                if (!rainbowball.mesh) return;
+
+                check_cube_centerball_collisions(rainbowball, rainbowball.mesh.geometry.parameters.radius);
+
+                // Check collision with original ball
+                check_otherballs_collisions(ball, ballRadius, rainbowball);
+
+                // Check for collisions with other rainbow balls
+                rainbowBalls.forEach((otherBall, otherIndex) => {
+                    if (index !== otherIndex && otherBall.mesh) {
+
+                        check_otherballs_collisions(otherBall, otherBall.mesh.geometry.parameters.radius, rainbowball);
+                        
+                    }
+                });
+
+                // Check for collisions with other new balls
+                allOtherBalls.forEach((otherBall, otherIndex) => {
+                    if (otherBall.mesh) {
+
+                        check_otherballs_collisions(otherBall, otherBall.mesh.geometry.parameters.radius, rainbowball);
+                        
+                    }
+                });
+            });
+        }
+
+        
+        if (Array.isArray(allOtherBalls)) {
+            allOtherBalls.forEach((newBall, index) => {
+                if (!newBall.mesh) return;
+
+                check_cube_centerball_collisions(newBall, newBall.mesh.geometry.parameters.radius);
+
+                // Check collision with original ball
+                check_otherballs_collisions(ball, ballRadius, newBall);
+
+                // Check for collisions with other rainbow balls
+                rainbowBalls.forEach((otherBall, otherIndex) => {
+                    if (otherBall.mesh) {
+
+                        check_otherballs_collisions(otherBall, otherBall.mesh.geometry.parameters.radius, newBall);
+                        
+                    }
+                });
+
+                // Check for collisions with other new balls
+                allOtherBalls.forEach((otherBall, otherIndex) => {
+                    if (index !== otherIndex && otherBall.mesh) {
+
+                        check_otherballs_collisions(otherBall, otherBall.mesh.geometry.parameters.radius, newBall);
+                        
+                    }
+                });
+            });
+        }
+    }
+
+    function check_cube_centerball_collisions(ball, ballRadius)
+    {
+        // Move the original ball
+        ball.mesh.position.x += ball.dx;
+        ball.mesh.position.y += ball.dy;
+        ball.mesh.position.z += ball.dz;
+        
+        // Check for collisions with the box walls and reverse direction
+        if (Math.abs(ball.mesh.position.x) + ballRadius >= boxsize / 2) {
+            ball.mesh.position.x = (boxsize / 2 - ballRadius) * Math.sign(ball.mesh.position.x); // Prevent the ball from exceeding the box 
+            ball.dx = -ball.dx;
+            if (isFrictionEnabled) {
+                if (Math.abs(ball.dx) >= friction)
+                    ball.dx -= (Math.sign(ball.dx) * friction); // Apply friction
+                else
+                    ball.dx = 0;
+            }
+        }
+        if (Math.abs(ball.mesh.position.y) + ballRadius >= boxsize / 2) {
+            ball.mesh.position.y = (boxsize / 2 - ballRadius) * Math.sign(ball.mesh.position.y); // Prevent the ball from exceeding the box
+            ball.dy = -ball.dy;
+
+            if (isFrictionEnabled) {
+                if (Math.abs(ball.dy) >= friction)
+                    ball.dy -= (Math.sign(ball.dy) * friction); // Apply friction
+                else
+                    ball.dy = 0;
+            }
+
+            if (isGravityEnabled) ball.dy -= gravity;
+        }
+        if (Math.abs(ball.mesh.position.z) + ballRadius >= boxsize / 2) {
+            ball.mesh.position.z = (boxsize / 2 - ballRadius) * Math.sign(ball.mesh.position.z); // Prevent the ball from exceeding the box
+            ball.dz = -ball.dz;
+            if (isFrictionEnabled) {
+                if (Math.abs(ball.dz) >= friction)
+                    ball.dz -= (Math.sign(ball.dz) * friction); // Apply friction
+                else
+                    ball.dz = 0;
+            }
+        }
+
+        // Check for collision with the center fixed ball
+        var dxBall = ball.mesh.position.x - centerBall.position.x;
+        var dyBall = ball.mesh.position.y - centerBall.position.y;
+        var dzBall = ball.mesh.position.z - centerBall.position.z;
+
+        var distanceSquared = dxBall * dxBall + dyBall * dyBall + dzBall * dzBall;
+        var combinedRadii = ballRadius + centerBallRadius;
+        
+        if (distanceSquared <= combinedRadii * combinedRadii) {
+            var distance = Math.sqrt(distanceSquared);
+            var nx = dxBall / distance;
+            var ny = dyBall / distance;
+            var nz = dzBall / distance;
+
+            var dotProduct = ball.dx * nx + ball.dy * ny + ball.dz * nz;
+            ball.dx -= 2 * dotProduct * nx;
+            ball.dy -= 2 * dotProduct * ny;
+            ball.dz -= 2 * dotProduct * nz;
+
+            if (isFrictionEnabled) {
+                if (Math.abs(ball.dx) >= friction) {
+                    ball.dx -= Math.sign(ball.dx) * friction;
+                } else {
+                    ball.dx = 0;
+                }
+                if (Math.abs(ball.dy) >= friction) {
+                    ball.dy -= Math.sign(ball.dy) * friction;
+                } else {
+                    ball.dy = 0;
+                }
+                if (Math.abs(ball.dz) >= friction) {
+                    ball.dz -= Math.sign(ball.dz) * friction;
+                } else {
+                    ball.dz = 0;
+                }
+            }
+
+            if (isGravityEnabled) ball.dy -= gravity;
+
+            var overlap = combinedRadii - distance;
+            ball.mesh.position.x += nx * overlap;
+            ball.mesh.position.y += ny * overlap;
+            ball.mesh.position.z += nz * overlap;
+        }
+    }
+
+    function check_otherballs_collisions(ball, ballRadius, secondBall)
+    {
+        // Check for collisions between the original ball and each rainbow ball
+        var dx = ball.mesh.position.x - secondBall.mesh.position.x;
+        var dy = ball.mesh.position.y - secondBall.mesh.position.y;
+        var dz = ball.mesh.position.z - secondBall.mesh.position.z;
+        var distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        var combinedRadii = ballRadius + secondBall.mesh.geometry.parameters.radius;
+
+        if (distance < combinedRadii) {
+            // Resolve overlap by pushing balls apart
+            var overlap = combinedRadii - distance;
+            
+            var nx = dx / distance;
+            var ny = dy / distance;
+            var nz = dz / distance;
+
+            // Move the balls apart
+            ball.mesh.position.x += nx * overlap * 0.5;
+            ball.mesh.position.y += ny * overlap * 0.5;
+            ball.mesh.position.z += nz * overlap * 0.5;
+
+            // Reflect velocities for original ball
+            var ballVelocityDot = dx * nx + dy * ny + dz * nz;
+            dx -= 2 * ballVelocityDot * nx;
+            dy -= 2 * ballVelocityDot * ny;
+            dz -= 2 * ballVelocityDot * nz;
+
+
+            if (isFrictionEnabled) {
+                if (Math.abs(dx) >= friction) dx -= Math.sign(dx) * friction;
+                else dx = 0;
+
+                if (Math.abs(dy) >= friction) dy -= Math.sign(dy) * friction;
+                else dy = 0;
+
+                if (Math.abs(dz) >= friction) dz -= Math.sign(dz) * friction;
+                else dz = 0;
+            }
+
+            if (isGravityEnabled) dy -= gravity;
+
+            // Reflect velocities for rainbow ball
+            var dotProduct = secondBall.dx * nx + secondBall.dy * ny + secondBall.dz * nz;
+
+            secondBall.mesh.position.x -= nx * overlap * 0.5;
+            secondBall.mesh.position.y -= ny * overlap * 0.5;
+            secondBall.mesh.position.z -= nz * overlap * 0.5;
+
+            secondBall.dx -= 2 * dotProduct * nx;
+            secondBall.dy -= 2 * dotProduct * ny;
+            secondBall.dz -= 2 * dotProduct * nz;
+
+            if (isFrictionEnabled) {
+                if (Math.abs(secondBall.dx) >= friction) secondBall.dx -= Math.sign(secondBall.dx) * friction;
+                else secondBall.dx = 0;
+
+                if (Math.abs(secondBall.dy) >= friction) secondBall.dy -= Math.sign(secondBall.dy) * friction;
+                else secondBall.dy = 0;
+
+                if (Math.abs(secondBall.dz) >= friction) secondBall.dz -= Math.sign(secondBall.dz) * friction;
+                else secondBall.dz = 0;
+            }
+
+            if (isGravityEnabled) secondBall.dy -= gravity;
+        }
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        update_scene();
+
+        mirrorSphereCamera.update( renderer, scene );
+        
+        controls.update(); // Update OrbitControls
+        renderer.render(scene, camera);
+    }
+</script>
+</body>
+</html>
